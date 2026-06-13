@@ -1,0 +1,44 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<records>
+<record>
+        <location_id>1</location_id>
+        <location_name>Wynyard</location_name>
+        <date>2026-01-15</date>
+    </record>
+
+<record>
+        <location_id>2</location_id>
+        <location_name>Launceston</location_name>
+        <date>2026-02-10</date>
+    </record>
+
+<record>
+        <location_id>3</location_id>
+        <location_name>Smithton</location_name>
+        <date>2026-03-20</date>
+    </record>
+
+<record>
+        <location_id>4</location_id>
+        <location_name>Hobart</location_name>
+        <date>2026-04-05</date>
+    </record>
+
+<record>
+        <location_id>5</location_id>
+        <location_name>Campania</location_name>
+        <date>2026-06-06</date>
+    </record>
+
+<record>
+        <location_id>4</location_id>
+        <location_name>Hobart</location_name>
+        <date>2015-01-01</date>
+    </record>
+
+<record>
+        <location_id>4</location_id>
+        <location_name>Hobart</location_name>
+        <date>2016-01-01</date>
+    </record>
+</records>

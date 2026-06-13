@@ -1,0 +1,5 @@
+[phases.build]
+cmds = ["composer install --no-dev --optimize-autoloader"]
+
+[start]
+cmd = "php -d memory_limit=512M -S 0.0.0.0:$PORT"
