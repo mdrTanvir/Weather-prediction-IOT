@@ -1,166 +1,108 @@
-# Weather Prediction Dashboard
+# IoT Weather Prediction Dashboard
+
+A full-stack weather dashboard that combines a Raspberry Pi Sense HAT workflow, PHP machine-learning models, historical sensor data, and live weather observations. It estimates daily minimum and maximum temperature and humidity for five Tasmanian locations, then makes the expected range easy to compare with current conditions.
 
 **Live demo:** https://weather-prediction-dashboard-production.up.railway.app/
 
-A full-stack IoT weather forecasting system that combines a Raspberry Pi SenseHat device, a PHP/ML server, and an interactive web dashboard to predict and compare daily temperature and humidity ranges across five Tasmanian weather monitoring sites.
+## What it does
 
----
+- Predicts daily temperature and humidity ranges for Wynyard, Launceston, Smithton, Hobart, and Campania.
+- Shows the seasonal half-hourly pattern for the selected location.
+- Retrieves current daily observations from the Open-Meteo API when available.
+- Exposes a small JSON endpoint for a Sense HAT device or other client to request a prediction.
+- Uses the Sense HAT display to flag readings that fall inside or outside the expected range.
 
-## What Problem It Solves
+The dashboard answers a practical question: is the current reading normal for this place and time of year, rather than merely reporting the reading itself?
 
-Standard weather sensors tell you what the conditions are *right now*, but give no context for whether that reading is normal for the time of year and location. This system bridges that gap by:
-
-- **Predicting** the expected min/max temperature and humidity for any date and location using a machine learning model trained on 10+ years of historical sensor data
-- **Comparing** the SenseHat's live readings against those predictions in real-time, lighting the display green (within range) or red (anomalous)
-- **Visualising** the historical half-hourly averages alongside the ML prediction on an interactive web dashboard, so you can see the seasonal pattern at a glance
-
-The result is a contextual sensor — not just "it's 14°C" but "14°C is within the normal range for Hobart in June."
-
----
-
-## System Architecture
+## How it works
 
 ```mermaid
-flowchart TD
-    subgraph IOT["🖥️  IoT Device (SenseHat)"]
-        A([Startup]) --> B{Middle button\npressed?}
-        B -- No --> C[Normal Mode\nMonitor live temp & humidity]
-        B -- Yes --> D[Setup Mode]
-        D --> E[Select Day / Month / Site\nLeft/Right to switch · Up/Down to change]
-        E --> F{Middle button\npressed?}
-        F -- No --> E
-        F -- Yes --> G[Send date + site_id to server]
-        G --> H[Display predicted min/max\nin terminal]
-        C --> I{Prediction\ndata loaded?}
-        I -- Yes --> J{Reading within\npredicted range?}
-        J -- Yes --> K[🟢 Green display]
-        J -- No  --> L[🔴 Red display]
-        I -- No  --> C
-    end
-
-    subgraph SERVER["🌐  Web Server (PHP)"]
-        M[Receive GET request\n?date=&site_id=] --> N[Store record in recordData.xml]
-        N --> O[Load PHP-ML model]
-        O --> P[Return JSON predictions]
-        N --> Q[Read XML for date + site]
-        Q --> R[Compute half-hourly averages\nfrom training CSV for that date]
-        R --> S{Button clicked?}
-        S -- Temperature --> T[Plot avg temp + prediction\nin spline area chart]
-        S -- Humidity    --> U[Plot avg humidity + prediction\nin spline area chart]
-    end
-
-    subgraph ML["🤖  ML Pipeline (PHP-ML)"]
-        V[Raw CSV 1M rows] --> W[data_cleaning.php\nRemove bad rows · fix gaps]
-        W --> X[train_and_save_models.php\nAggregate to daily min/max]
-        X --> Y[Features: sin/cos day-of-year\n+ one-hot site encoding]
-        Y --> Z[LeastSquares regression × 4\nmax/min temp · max/min humidity]
-        Z --> AA[Save .phpml model files]
-    end
-
-    G -->|HTTP GET| M
-    O --> AA
-    P -->|JSON| H
+flowchart LR
+    SenseHAT[Sense HAT device] -->|date and site| API[Prediction endpoint]
+    API --> Models[Four PHP-ML regression models]
+    Models --> Prediction[Expected daily ranges]
+    Dashboard[PHP dashboard] --> Models
+    Dataset[Historical sensor records] --> Charts[Seasonal half-hourly averages]
+    OpenMeteo[Open-Meteo API] --> Dashboard
+    Charts --> Dashboard
+    Prediction --> Dashboard
 ```
 
----
+## Data and model
 
-## Monitoring Sites
+The included training CSV contains 1,033,307 half-hourly readings. The original project data covers 2015–2021; the 2022–2026 extension is **synthetic**, generated from per-site, per-month, and per-time-slot averages with controlled noise. It is included to demonstrate the pipeline and interface, not as a substitute for newly collected observations.
 
-| Site ID | Location   |
-|---------|------------|
-| 1       | Wynyard    |
-| 2       | Launceston |
-| 3       | Smithton   |
-| 4       | Hobart     |
-| 5       | Campania   |
+Training first aggregates the readings to one daily minimum/maximum record per site. Four `PHP-ML` `LeastSquares` models then estimate:
 
----
+| Target | Reported project R² |
+| --- | ---: |
+| Maximum temperature | 0.84 |
+| Minimum temperature | 0.84 |
+| Maximum humidity | 0.68 |
+| Minimum humidity | 0.82 |
 
-## Machine Learning Approach
+The features are seasonal sine/cosine terms, site indicators, and site-by-season interactions. This keeps the model interpretable and lets each location have its own annual pattern. These figures are model-fit results from the project; they should not be treated as a guarantee of future forecast accuracy, especially for the synthetic portion of the dataset.
 
-**Algorithm:** Supervised linear regression (PHP-ML `LeastSquares`)
+## Technology
 
-**Why linear regression?**
-Weather patterns are strongly cyclical and location-dependent. Linear regression over carefully engineered features is interpretable, fast to train, and avoids overfitting on a relatively small feature space.
+| Area | Tools |
+| --- | --- |
+| Dashboard and API | PHP 8, Apache |
+| Machine learning | PHP-ML `LeastSquares` regression |
+| Device integration | Raspberry Pi Sense HAT (`sensor.py`) |
+| Visualisation | CanvasJS, Bootstrap, jQuery |
+| Current conditions | Open-Meteo API |
+| Deployment | Railway or Vercel Container runtime |
 
-**Feature engineering:**
+## Run locally
 
-| Feature | Description |
-|---|---|
-| `sin(2π · doy / 365)` | Cyclical day-of-year — sine component |
-| `cos(2π · doy / 365)` | Cyclical day-of-year — cosine component |
-| `is_site_1 … is_site_5` | One-hot encoded site ID |
+Requirements: PHP 8.1+ and Composer. The provided models and training CSV are already committed for a repeatable demo.
 
-Raw timestamps were deliberately excluded — using unix timestamps as a linear feature caused the model to treat time as monotonically increasing, producing nonsensical extrapolations. The sin/cos encoding maps any day-of-year onto the unit circle, so the model sees the same seasonal position regardless of year.
-
-**Training pipeline:**
-1. Load `cleaned_training_data.csv` (~1M half-hourly readings, 2015–2026)
-2. Aggregate to one row per `(date, site)` — daily min/max for temp and humidity (~20k samples)
-3. Build 7-feature vectors and train 4 separate models
-4. Serialize to `Saved_models/*.phpml`
-
-**Model accuracy (R²):**
-
-| Model | R² |
-|---|---|
-| Max Temperature | 0.84 |
-| Min Temperature | 0.84 |
-| Max Humidity | 0.68 |
-| Min Humidity | 0.82 |
-
----
-
-## Project Structure
-
-```
-.
-├── index.php                  # Web dashboard — charts + prediction cards
-├── recordDeviceData.php       # API endpoint: stores XML record, returns JSON prediction
-├── load_and_predict.php       # Loads saved models and generates predictions
-├── average_temp_humid.php     # Computes half-hourly historical averages for chart
-├── train_and_save_models.php  # Trains and serialises the 4 regression models
-├── data_cleaning.php          # Cleans raw sensor CSV
-├── generate_2026_data.py      # Extends training data to 2026 with synthetic records
-├── sensor.py                  # SenseHat IoT device script
-├── recordData.xml             # Persisted device request records
-├── Training_data/             # (gitignored) raw + cleaned CSV datasets
-├── Saved_models/              # (gitignored) serialised .phpml model files
-└── canvasjs3.6/               # CanvasJS charting library
-```
-
----
-
-## Setup
-
-### 1. Install PHP dependencies
 ```bash
 composer install
+php -d memory_limit=512M -S localhost:8080
 ```
 
-### 2. Generate training data (optional — extends to 2026)
-```bash
-python3 generate_2026_data.py
-```
+Open http://localhost:8080/index.php.
 
-### 3. Train the models
+To retrain the models after replacing the dataset:
+
 ```bash
 php -d memory_limit=2048M train_and_save_models.php
 ```
 
-### 4. Run the server
-```bash
-php -d memory_limit=2048M -S localhost:8080
+The device/API endpoint accepts a date and site identifier:
+
+```text
+/recordDeviceData.php?date=2026-11-02&site_id=2
 ```
 
-Open [http://localhost:8080/index.php](http://localhost:8080/index.php)
+It returns a JSON prediction. The endpoint validates both inputs and is stateless, so it works on serverless/container deployments without writing request data to the application filesystem.
 
----
+## Deploy on Vercel
 
-## Scope for Improvement
+The repository includes `Dockerfile.vercel`, which builds the PHP application and Composer dependency in a Vercel-compatible container. Import the GitHub repository into Vercel or deploy from the project root. Vercel detects `Dockerfile.vercel` and routes traffic to the container automatically.
 
-- **Additional features** — wind speed, atmospheric pressure, and cloud cover would capture weather patterns that pure seasonality misses
-- **Non-linear models** — random forests or gradient boosting would capture interaction effects between site and season that linear regression cannot represent
-- **Larger dataset** — more years of real (not synthetic) sensor data would reduce reliance on seasonality averages
-- **Feedback loop** — storing live SenseHat readings back into the training set over time would allow the model to self-improve
+The deployment is intentionally stateless. It does not store device requests; use a managed database or telemetry service if you later need durable device history.
 
+## Project layout
 
+```text
+index.php                    Dashboard UI
+recordDeviceData.php         JSON prediction endpoint
+load_and_predict.php         Restores models and generates predictions
+average_temp_humid.php       Builds historical half-hourly averages
+train_and_save_models.php    Trains and saves the four models
+sensor.py                    Raspberry Pi Sense HAT client
+Training_data/               Versioned training dataset
+Saved_models/                Versioned trained PHP-ML models
+Dockerfile.vercel            Vercel container deployment
+```
+
+## Limitations and next steps
+
+- Replace the synthetic 2022–2026 extension with verified recent sensor data.
+- Evaluate on a true held-out time period before presenting the model as a forecast service.
+- Add wind, pressure, and cloud cover as features.
+- Compare the linear baseline with tree-based or gradient-boosting models.
+- Store real device telemetry in a managed database if historical monitoring is needed.

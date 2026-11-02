@@ -1,16 +1,10 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 ini_set('error_log', '/tmp/php_errors.log');
 set_time_limit(120);
 
 require_once 'average_temp_humid.php';
-
-$xmlFilePath = "recordData.xml";
-$raw_xml     = simplexml_load_file($xmlFilePath);
-$json_data   = json_encode($raw_xml);
-$data        = json_decode($json_data, true);
-$last_record = end($data['record']);
 
 $locations = [
     1 => 'Wynyard',
@@ -21,7 +15,7 @@ $locations = [
 ];
 
 $inputDate   = date('Y-m-d');
-$defaultSite = intval($last_record['location_id']);
+$defaultSite = 2;
 $siteId      = (isset($_GET['site']) && isset($locations[(int)$_GET['site']]))
     ? (int)$_GET['site']
     : $defaultSite;
