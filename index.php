@@ -31,6 +31,29 @@ $forecastSource = $usingLiveForecast ? 'Open-Meteo forecast guidance' : 'Local s
 $locationName = $predictions['site_name'];
 
 $displayDate  = date('F j, Y', strtotime($inputDate));
+$actualData = isset($liveForecast[0]) ? [
+    'actualMaxTemp' => $liveForecast[0]['maxTemperaturePrediction'],
+    'actualMinTemp' => $liveForecast[0]['minTemperaturePrediction'],
+    'actualMaxHumid' => $liveForecast[0]['maxHumidityPrediction'],
+    'actualMinHumid' => $liveForecast[0]['minHumidityPrediction'],
+    'source' => 'Open-Meteo API',
+] : null;
+if ($actualData === null) {
+    $todayActuals = getTodayActuals($siteId, $inputDate);
+    $actualData = $todayActuals ? array_merge($todayActuals, ['source' => 'Training CSV']) : null;
+}
+
+function calcAccuracy($predicted, $actual) {
+    if (abs($actual) < 0.001) return null;
+    return round(max(0.0, 100.0 - abs($predicted - $actual) / abs($actual) * 100.0), 1);
+}
+
+function accClass($pct) {
+    if ($pct === null) return '';
+    if ($pct >= 90) return 'good';
+    if ($pct >= 70) return 'ok';
+    return 'bad';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -532,6 +555,40 @@ $displayDate  = date('F j, Y', strtotime($inputDate));
             </div>
         </div>
     </div>
+</div>
+
+<!-- ── Today's prediction accuracy ─────────────────────────────────── -->
+<div class="container-fluid px-4 mb-5">
+    <?php if ($actualData): ?>
+    <?php
+        // The local PHP-ML baseline is deliberately compared with the daily
+        // reference data; the live forecast cards above remain provider-led.
+        $rows = [
+            ['label' => '<i class="bi bi-thermometer-high" style="color:var(--temp-color)"></i>&nbsp; Max Temperature', 'unit' => '°C', 'pred' => $modelPredictions['maxTemperaturePrediction'], 'act' => $actualData['actualMaxTemp']],
+            ['label' => '<i class="bi bi-thermometer-low" style="color:#2196f3"></i>&nbsp; Min Temperature', 'unit' => '°C', 'pred' => $modelPredictions['minTemperaturePrediction'], 'act' => $actualData['actualMinTemp']],
+            ['label' => '<i class="bi bi-droplet-fill" style="color:var(--humid-color)"></i>&nbsp; Max Humidity', 'unit' => '%', 'pred' => $modelPredictions['maxHumidityPrediction'], 'act' => $actualData['actualMaxHumid']],
+            ['label' => '<i class="bi bi-droplet-half" style="color:#8e24aa"></i>&nbsp; Min Humidity', 'unit' => '%', 'pred' => $modelPredictions['minHumidityPrediction'], 'act' => $actualData['actualMinHumid']],
+        ];
+        foreach ($rows as &$row) $row['acc'] = calcAccuracy($row['pred'], $row['act']);
+        unset($row);
+        $accuracyValues = array_filter(array_column($rows, 'acc'), fn($value) => $value !== null);
+        $overallAcc = count($accuracyValues) ? round(array_sum($accuracyValues) / count($accuracyValues), 1) : null;
+    ?>
+    <div class="chart-card">
+        <div class="chart-header">
+            <h2 class="chart-title"><i class="bi bi-bullseye" style="color:#e85d04"></i> Today's Prediction Accuracy <small><?php echo $displayDate; ?> &nbsp;·&nbsp; <?php echo htmlspecialchars($locationName); ?></small></h2>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span style="font-size:.75rem;background:#e0f7fa;color:#00796b;border-radius:999px;padding:.2rem .7rem;font-weight:600;"><i class="bi bi-cloud-check"></i> <?php echo htmlspecialchars($actualData['source'] ?? 'Reference data'); ?></span>
+                <?php if ($overallAcc !== null): ?><div class="d-flex align-items-center gap-2"><span style="font-size:.78rem;color:#888;text-transform:uppercase;letter-spacing:.08em;">Overall</span><span class="acc-pill <?php echo accClass($overallAcc); ?>" style="font-size:1rem;padding:.3rem .9rem;"><?php echo $overallAcc; ?>%</span></div><?php endif; ?>
+            </div>
+        </div>
+        <div class="table-responsive"><table class="today-acc-table"><thead><tr><th>Metric</th><th>Predicted</th><th>Actual</th><th>Difference</th><th>Accuracy</th></tr></thead><tbody>
+            <?php foreach ($rows as $row): $diff = round($row['pred'] - $row['act'], 1); ?>
+            <tr><td><?php echo $row['label']; ?></td><td><?php echo $row['pred'] . $row['unit']; ?></td><td><?php echo $row['act'] . $row['unit']; ?></td><td style="color:<?php echo $diff >= 0 ? '#e85d04' : '#0096c7'; ?>;font-weight:600;"><?php echo ($diff > 0 ? '+' : '') . $diff . $row['unit']; ?></td><td><span class="acc-pill <?php echo accClass($row['acc']); ?>"><?php echo $row['acc'] === null ? 'N/A' : $row['acc'] . '%'; ?></span></td></tr>
+            <?php endforeach; ?>
+        </tbody></table></div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <script>
