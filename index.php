@@ -400,6 +400,26 @@ function accClass($pct) {
             text-align: center;
             color: #888;
         }
+
+        /* ── Technical notes ─────────────────────────────────────── */
+        .technical-card {
+            background: #101b31;
+            color: #edf4ff;
+            border-radius: var(--card-radius);
+            box-shadow: var(--shadow);
+            padding: 1.75rem;
+        }
+        .technical-kicker { color: #7dd3fc; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+        .technical-title { color: #fff; font-size: 1.3rem; font-weight: 700; margin: .35rem 0 .5rem; }
+        .technical-intro { color: #c3d2e8; margin: 0 0 1.3rem; max-width: 820px; font-size: .92rem; line-height: 1.6; }
+        .technical-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
+        .technical-item { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 1rem; }
+        .technical-item i { color: #7dd3fc; font-size: 1.2rem; }
+        .technical-item h3 { color: #fff; font-size: .9rem; margin: .55rem 0 .4rem; }
+        .technical-item p { color: #c3d2e8; font-size: .78rem; line-height: 1.55; margin: 0; }
+        .technical-footnote { color: #9fb4d1; font-size: .74rem; line-height: 1.55; margin: 1rem 0 0; }
+        .technical-footnote a { color: #7dd3fc; }
+        @media (max-width: 767px) { .technical-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -589,6 +609,33 @@ function accClass($pct) {
         </tbody></table></div>
     </div>
     <?php endif; ?>
+</div>
+
+<!-- ── Technical notes ─────────────────────────────────────────────── -->
+<div class="container-fluid px-4 mb-5">
+    <section class="technical-card" aria-labelledby="technical-title">
+        <div class="technical-kicker">For technical readers</div>
+        <h2 id="technical-title" class="technical-title">How the dashboard works</h2>
+        <p class="technical-intro">The interface separates practical live forecasting from the project’s reproducible IoT and machine-learning baseline. This keeps everyday weather guidance useful without hiding how the original model and data pipeline work.</p>
+        <div class="technical-grid">
+            <article class="technical-item">
+                <i class="bi bi-cloud-check"></i>
+                <h3>Live forecast path</h3>
+                <p>Daily temperature, humidity, and weather-code guidance come from Open-Meteo’s location-matched forecast feed. The app requests 11 days once, uses today for the dashboard summary, and displays the next 10 days.</p>
+            </article>
+            <article class="technical-item">
+                <i class="bi bi-cpu"></i>
+                <h3>PHP-ML fallback model</h3>
+                <p>Four PHP-ML least-squares regressions estimate daily minimum/maximum temperature and humidity. Features include seasonal sine/cosine terms, site indicators, and site-by-season interactions for five Tasmanian locations.</p>
+            </article>
+            <article class="technical-item">
+                <i class="bi bi-speedometer2"></i>
+                <h3>Fast historical chart</h3>
+                <p>The raw sensor file has over one million half-hourly readings. A compact seasonal cache is generated when the data changes, so visitors do not wait for the full CSV to be scanned on every request.</p>
+            </article>
+        </div>
+        <p class="technical-footnote">The accuracy table compares the local seasonal baseline with the same-day provider reference; it is a transparent indicator, not a formal held-out validation score. The original 2015–2021 sensor data is supplemented by a synthetic 2022–2026 extension, so results should be treated as project evidence rather than operational weather guarantees. <a href="https://github.com/mdrTanvir/Weather-prediction-IOT" target="_blank" rel="noopener noreferrer">View the source and methodology on GitHub <i class="bi bi-arrow-up-right"></i></a>.</p>
+    </section>
 </div>
 
 <script>
