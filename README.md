@@ -2,12 +2,14 @@
 
 A full-stack weather dashboard that combines a Raspberry Pi Sense HAT workflow, PHP machine-learning models, historical sensor data, and live weather observations. It estimates daily minimum and maximum temperature and humidity for five Tasmanian locations, then makes the expected range easy to compare with current conditions.
 
-**Live demo:** https://weather-prediction-dashboard-production.up.railway.app/
+**Live demo:** https://weather.tanvirrahman.dev/
 
 ## What it does
 
 - Predicts daily temperature and humidity ranges for Wynyard, Launceston, Smithton, Hobart, and Campania.
-- Shows a rolling 10-day dashboard forecast with daily temperature, humidity, and model-derived condition icons.
+- Shows a rolling 10-day forecast with daily temperature, humidity, and weather-condition icons.
+- Uses Open-Meteo daily forecast guidance for the live dashboard, with the local seasonal model available as a fallback if the provider is unavailable.
+- Serves the historical same-day chart from a precomputed cache instead of scanning the 1M+ row sensor CSV for every visit.
 - Shows the seasonal half-hourly pattern for the selected location.
 - Retrieves current daily observations from the Open-Meteo API when available.
 - Exposes a small JSON endpoint for a Sense HAT device or other client to request a prediction.
@@ -33,18 +35,20 @@ flowchart LR
 
 The included training CSV contains 1,033,307 half-hourly readings. The original project data covers 2015–2021; the 2022–2026 extension is **synthetic**, generated from per-site, per-month, and per-time-slot averages with controlled noise. It is included to demonstrate the pipeline and interface, not as a substitute for newly collected observations.
 
-Training first aggregates the readings to one daily minimum/maximum record per site. Four `PHP-ML` `LeastSquares` models then estimate:
+Training first aggregates the readings to one daily minimum/maximum record per site. Four `PHP-ML` `LeastSquares` models then estimate seasonal baseline ranges:
 
-| Target | Reported project R² |
+| Target | In-sample project R² |
 | --- | ---: |
 | Maximum temperature | 0.84 |
 | Minimum temperature | 0.84 |
 | Maximum humidity | 0.68 |
 | Minimum humidity | 0.82 |
 
-The features are seasonal sine/cosine terms, site indicators, and site-by-season interactions. This keeps the model interpretable and lets each location have its own annual pattern. These figures are model-fit results from the project; they should not be treated as a guarantee of future forecast accuracy, especially for the synthetic portion of the dataset.
+The features are seasonal sine/cosine terms, site indicators, and site-by-season interactions. This keeps the model interpretable and lets each location have its own annual pattern. These R² values are in-sample project metrics, not an out-of-sample accuracy guarantee—especially because the 2022–2026 extension is synthetic.
 
-The 10-day dashboard forecast reuses these same saved models for each subsequent date. Its icons are a transparent visual summary of the predicted temperature and humidity profile; they are not live radar, precipitation, or severe-weather alerts.
+For a live forecast, the dashboard prefers the Open-Meteo daily forecast feed, including provider weather codes for the icons. The local PHP-ML seasonal model remains available as a transparent fallback. This improves practical day-to-day forecast quality while preserving the original IoT/ML work as a reproducible baseline.
+
+`build_dashboard_cache.php` is run when the training CSV changes. It creates `Training_data/dashboard_seasonal_averages.json`, allowing the historical chart to render quickly without re-reading the full CSV for every visitor.
 
 ## Technology
 

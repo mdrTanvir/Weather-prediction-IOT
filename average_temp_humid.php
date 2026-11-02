@@ -3,6 +3,30 @@
 require_once 'load_and_predict.php';
 
 function calculateHalfHourlyAverages($inputDate, $siteId) {
+    static $seasonalCache = null;
+    $cachePath = __DIR__ . '/Training_data/dashboard_seasonal_averages.json';
+
+    // The cache is generated from the sensor CSV during development so a page
+    // request does not need to scan more than one million sensor readings.
+    if ($seasonalCache === null && is_readable($cachePath)) {
+        $seasonalCache = json_decode((string)file_get_contents($cachePath), true);
+    }
+
+    $dayMonth = date('m-d', strtotime($inputDate));
+    if (isset($seasonalCache[(string)$siteId][$dayMonth])) {
+        $averageData = [];
+        foreach ($seasonalCache[(string)$siteId][$dayMonth] as $intervalIndex => $values) {
+            $averageData[] = [
+                'date' => $inputDate,
+                'time' => sprintf('%02d:%02d', intdiv((int)$intervalIndex, 2), ((int)$intervalIndex % 2) * 30),
+                'avgTemp' => $values[0],
+                'avgHumid' => $values[1],
+            ];
+        }
+        return $averageData;
+    }
+
+    // Compatibility fallback when the precomputed cache is unavailable.
     $csvFilePath = 'Training_data/cleaned_training_data.csv';
     // Parse input date to extract day and month
     $inputDayMonth = date("d-m", strtotime($inputDate));
@@ -71,7 +95,21 @@ function calculateHalfHourlyAverages($inputDate, $siteId) {
     return $averageData;
 }
 
-function fetchLiveWeatherData($siteId, $date) {
+function weatherCodeMeta(int $code): array {
+    return match (true) {
+        $code === 0 => ['icon' => 'bi-sun-fill', 'label' => 'Clear'],
+        in_array($code, [1, 2], true) => ['icon' => 'bi-cloud-sun-fill', 'label' => 'Partly cloudy'],
+        $code === 3 => ['icon' => 'bi-cloud-fill', 'label' => 'Overcast'],
+        in_array($code, [45, 48], true) => ['icon' => 'bi-cloud-fog2-fill', 'label' => 'Foggy'],
+        in_array($code, [51, 53, 55, 56, 57], true) => ['icon' => 'bi-cloud-drizzle-fill', 'label' => 'Drizzle'],
+        in_array($code, [61, 63, 65, 66, 67, 80, 81, 82], true) => ['icon' => 'bi-cloud-rain-heavy-fill', 'label' => 'Rain'],
+        in_array($code, [71, 73, 75, 77, 85, 86], true) => ['icon' => 'bi-cloud-snow-fill', 'label' => 'Snow'],
+        in_array($code, [95, 96, 99], true) => ['icon' => 'bi-cloud-lightning-rain-fill', 'label' => 'Thunderstorms'],
+        default => ['icon' => 'bi-cloud-sun-fill', 'label' => 'Variable conditions'],
+    };
+}
+
+function fetchWeatherForecast($siteId, $startDate, int $days = 1): array {
     $coordinates = [
         1 => ['lat' => -40.9999, 'lon' => 145.7283], // Wynyard
         2 => ['lat' => -41.4332, 'lon' => 147.1441], // Launceston
@@ -80,32 +118,58 @@ function fetchLiveWeatherData($siteId, $date) {
         5 => ['lat' => -42.6500, 'lon' => 147.4500], // Campania
     ];
 
-    if (!isset($coordinates[$siteId])) return null;
+    if (!isset($coordinates[$siteId])) return [];
 
     $lat     = $coordinates[$siteId]['lat'];
     $lon     = $coordinates[$siteId]['lon'];
-    $dateStr = date('Y-m-d', strtotime($date));
+    $dateStr = date('Y-m-d', strtotime($startDate));
+    $endDate = date('Y-m-d', strtotime($dateStr . ' +' . max(0, $days - 1) . ' days'));
 
     $url = "https://api.open-meteo.com/v1/forecast"
          . "?latitude={$lat}&longitude={$lon}"
-         . "&daily=temperature_2m_max,temperature_2m_min,relative_humidity_2m_max,relative_humidity_2m_min"
+         . "&daily=temperature_2m_max,temperature_2m_min,relative_humidity_2m_max,relative_humidity_2m_min,weather_code"
          . "&timezone=Australia%2FHobart"
-         . "&start_date={$dateStr}&end_date={$dateStr}";
+         . "&start_date={$dateStr}&end_date={$endDate}";
 
     $ctx  = stream_context_create(['http' => ['timeout' => 10]]);
     $json = @file_get_contents($url, false, $ctx);
-    if ($json === false) return null;
+    if ($json === false) return [];
 
     $data = json_decode($json, true);
-    if (!$data || empty($data['daily']['time'])) return null;
+    if (!$data || empty($data['daily']['time'])) return [];
 
     $d = $data['daily'];
+    $locationNames = [1 => 'Wynyard', 2 => 'Launceston', 3 => 'Smithton', 4 => 'Hobart', 5 => 'Campania'];
+    $forecast = [];
+    foreach ($d['time'] as $index => $date) {
+        $condition = weatherCodeMeta((int)($d['weather_code'][$index] ?? -1));
+        $forecast[] = [
+            'site_name' => $locationNames[$siteId],
+            'timestamp' => $date,
+            'minTemperaturePrediction' => round((float)$d['temperature_2m_min'][$index], 1),
+            'maxTemperaturePrediction' => round((float)$d['temperature_2m_max'][$index], 1),
+            'minHumidityPrediction' => round((float)$d['relative_humidity_2m_min'][$index], 1),
+            'maxHumidityPrediction' => round((float)$d['relative_humidity_2m_max'][$index], 1),
+            'source' => 'Open-Meteo forecast',
+            'icon' => $condition['icon'],
+            'label' => $condition['label'],
+            'dayLabel' => date('D', strtotime($date)),
+            'dateLabel' => date('j M', strtotime($date)),
+        ];
+    }
+    return $forecast;
+}
+
+function fetchLiveWeatherData($siteId, $date) {
+    $forecast = fetchWeatherForecast($siteId, $date, 1);
+    if (!$forecast) return null;
+    $day = $forecast[0];
     return [
-        'actualMaxTemp'  => round((float)$d['temperature_2m_max'][0],       1),
-        'actualMinTemp'  => round((float)$d['temperature_2m_min'][0],       1),
-        'actualMaxHumid' => round((float)$d['relative_humidity_2m_max'][0], 1),
-        'actualMinHumid' => round((float)$d['relative_humidity_2m_min'][0], 1),
-        'source'         => 'Open-Meteo API',
+        'actualMaxTemp' => $day['maxTemperaturePrediction'],
+        'actualMinTemp' => $day['minTemperaturePrediction'],
+        'actualMaxHumid' => $day['maxHumidityPrediction'],
+        'actualMinHumid' => $day['minHumidityPrediction'],
+        'source' => 'Open-Meteo API',
     ];
 }
 
@@ -138,4 +202,3 @@ function getTodayActuals($siteId, $date) {
         'actualMinHumid' => round(min($humids), 1),
     ];
 }
-

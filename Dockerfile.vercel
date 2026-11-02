@@ -9,7 +9,8 @@ FROM php:8.3-apache
 WORKDIR /var/www/html
 COPY --from=dependencies /app/vendor ./vendor
 COPY index.php average_temp_humid.php load_and_predict.php recordDeviceData.php ./
-COPY Training_data/cleaned_training_data.csv ./Training_data/cleaned_training_data.csv
+# The compact dashboard cache replaces the 31 MB raw training CSV at runtime.
+COPY Training_data/dashboard_seasonal_averages.json ./Training_data/dashboard_seasonal_averages.json
 COPY Saved_models/ ./Saved_models/
 COPY canvasjs3.6/canvasjs.min.js ./canvasjs3.6/canvasjs.min.js
 

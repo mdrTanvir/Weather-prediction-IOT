@@ -19,28 +19,18 @@ $defaultSite = 2;
 $siteId      = (isset($_GET['site']) && isset($locations[(int)$_GET['site']]))
     ? (int)$_GET['site']
     : $defaultSite;
-$averageData  = calculateHalfHourlyAverages($inputDate, $siteId);
-$predictions  = generateMinMaxPredictions($siteId, $inputDate);
-$forecastDays = generateMultiDayForecast($siteId, date('Y-m-d', strtotime('+1 day')), 10);
+$averageData = calculateHalfHourlyAverages($inputDate, $siteId);
+$modelPredictions = generateMinMaxPredictions($siteId, $inputDate);
+$liveForecast = fetchWeatherForecast($siteId, $inputDate, 11);
+$usingLiveForecast = count($liveForecast) >= 11;
+$predictions = $liveForecast[0] ?? $modelPredictions;
+$forecastDays = $usingLiveForecast
+    ? array_slice($liveForecast, 1, 10)
+    : generateMultiDayForecast($siteId, date('Y-m-d', strtotime('+1 day')), 10);
+$forecastSource = $usingLiveForecast ? 'Open-Meteo forecast guidance' : 'Local seasonal model fallback';
 $locationName = $predictions['site_name'];
 
 $displayDate  = date('F j, Y', strtotime($inputDate));
-$liveData     = fetchLiveWeatherData($siteId, $inputDate);
-$todayActuals = getTodayActuals($siteId, $inputDate);
-$actualData   = $liveData
-    ?? ($todayActuals ? array_merge($todayActuals, ['source' => 'Training CSV']) : null);
-
-function calcAccuracy($predicted, $actual) {
-    if (abs($actual) < 0.001) return null;
-    return round(max(0.0, 100.0 - abs($predicted - $actual) / abs($actual) * 100.0), 1);
-}
-
-function accClass($pct) {
-    if ($pct === null) return '';
-    if ($pct >= 90) return 'good';
-    if ($pct >= 70) return 'ok';
-    return 'bad';
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -480,7 +470,7 @@ function accClass($pct) {
 <div class="container-fluid px-4 mb-4">
     <section class="forecast-card" aria-labelledby="forecast-title">
         <h2 id="forecast-title" class="forecast-title"><i class="bi bi-calendar-week me-2" style="color:#0f3460"></i>Next 10 Days</h2>
-        <p class="forecast-subtitle">Model-estimated daily temperature range and humidity for <?php echo htmlspecialchars($locationName); ?>.</p>
+        <p class="forecast-subtitle">Daily temperature range and humidity for <?php echo htmlspecialchars($locationName); ?> · <?php echo htmlspecialchars($forecastSource); ?>.</p>
         <div class="forecast-grid">
             <?php foreach ($forecastDays as $day): ?>
             <article class="forecast-day" title="<?php echo htmlspecialchars($day['label']); ?>">
@@ -492,7 +482,7 @@ function accClass($pct) {
             </article>
             <?php endforeach; ?>
         </div>
-        <p class="forecast-note">Icons summarise the predicted temperature and humidity profile. They are not live radar or precipitation observations.</p>
+        <p class="forecast-note"><?php echo $usingLiveForecast ? 'Icons and values use the provider’s daily weather-code forecast. They are guidance, not weather warnings.' : 'The weather provider was unavailable, so this view uses the local seasonal model. Icons summarise its temperature and humidity profile.'; ?></p>
     </section>
 </div>
 
@@ -517,160 +507,31 @@ function accClass($pct) {
     </div>
 </div>
 
-<!-- ── Model accuracy strip ─────────────────────────────────────────── -->
+<!-- ── Forecast source strip ────────────────────────────────────────── -->
 <div class="container-fluid px-4 mb-5">
     <div class="accuracy-strip">
         <div class="d-flex align-items-center gap-3 flex-wrap justify-content-around">
             <div class="acc-item">
-                <div class="acc-label">Model</div>
-                <div class="acc-val" style="color:#fff;">Linear Regression</div>
+                <div class="acc-label">Live forecast</div>
+                <div class="acc-val" style="color:#fff;">Open-Meteo guidance</div>
             </div>
             <div class="acc-divider d-none d-md-block"></div>
             <div class="acc-item">
-                <div class="acc-label">Max Temp R²</div>
-                <div class="acc-val good">0.84</div>
+                <div class="acc-label">Fallback</div>
+                <div class="acc-val good">Seasonal regression</div>
             </div>
             <div class="acc-divider d-none d-md-block"></div>
             <div class="acc-item">
-                <div class="acc-label">Min Temp R²</div>
-                <div class="acc-val good">0.84</div>
+                <div class="acc-label">Dashboard chart</div>
+                <div class="acc-val good">Precomputed cache</div>
             </div>
             <div class="acc-divider d-none d-md-block"></div>
             <div class="acc-item">
-                <div class="acc-label">Max Humidity R²</div>
-                <div class="acc-val ok">0.68</div>
-            </div>
-            <div class="acc-divider d-none d-md-block"></div>
-            <div class="acc-item">
-                <div class="acc-label">Min Humidity R²</div>
-                <div class="acc-val good">0.82</div>
-            </div>
-            <div class="acc-divider d-none d-md-block"></div>
-            <div class="acc-item">
-                <div class="acc-label">Training Samples</div>
-                <div class="acc-val" style="color:#fff;">19,980</div>
-            </div>
-            <div class="acc-divider d-none d-md-block"></div>
-            <div class="acc-item">
-                <div class="acc-label">Data Range</div>
-                <div class="acc-val" style="color:#fff;">2015 – 2026</div>
+                <div class="acc-label">Transparent status</div>
+                <div class="acc-val ok"><?php echo $usingLiveForecast ? 'Provider available' : 'Fallback active'; ?></div>
             </div>
         </div>
     </div>
-</div>
-
-<!-- ── Today's Accuracy Section ──────────────────────────────────────────── -->
-<div class="container-fluid px-4 mb-5">
-    <?php if ($actualData): ?>
-    <?php
-        $accMaxTemp  = calcAccuracy($predictions['maxTemperaturePrediction'], $actualData['actualMaxTemp']);
-        $accMinTemp  = calcAccuracy($predictions['minTemperaturePrediction'], $actualData['actualMinTemp']);
-        $accMaxHumid = calcAccuracy($predictions['maxHumidityPrediction'],    $actualData['actualMaxHumid']);
-        $accMinHumid = calcAccuracy($predictions['minHumidityPrediction'],    $actualData['actualMinHumid']);
-
-        $rows = [
-            [
-                'label' => '<i class="bi bi-thermometer-high" style="color:var(--temp-color)"></i>&nbsp; Max Temperature',
-                'unit'  => '°C',
-                'pred'  => $predictions['maxTemperaturePrediction'],
-                'act'   => $actualData['actualMaxTemp'],
-                'acc'   => $accMaxTemp,
-            ],
-            [
-                'label' => '<i class="bi bi-thermometer-low" style="color:#2196f3"></i>&nbsp; Min Temperature',
-                'unit'  => '°C',
-                'pred'  => $predictions['minTemperaturePrediction'],
-                'act'   => $actualData['actualMinTemp'],
-                'acc'   => $accMinTemp,
-            ],
-            [
-                'label' => '<i class="bi bi-droplet-fill" style="color:var(--humid-color)"></i>&nbsp; Max Humidity',
-                'unit'  => '%',
-                'pred'  => $predictions['maxHumidityPrediction'],
-                'act'   => $actualData['actualMaxHumid'],
-                'acc'   => $accMaxHumid,
-            ],
-            [
-                'label' => '<i class="bi bi-droplet-half" style="color:#8e24aa"></i>&nbsp; Min Humidity',
-                'unit'  => '%',
-                'pred'  => $predictions['minHumidityPrediction'],
-                'act'   => $actualData['actualMinHumid'],
-                'acc'   => $accMinHumid,
-            ],
-        ];
-
-        $avgAcc = array_filter([$accMaxTemp, $accMinTemp, $accMaxHumid, $accMinHumid], fn($v) => $v !== null);
-        $overallAcc = count($avgAcc) ? round(array_sum($avgAcc) / count($avgAcc), 1) : null;
-    ?>
-    <div class="chart-card">
-        <div class="chart-header">
-            <h2 class="chart-title">
-                <i class="bi bi-bullseye" style="color:#e85d04"></i>
-                Today's Prediction Accuracy
-                <small><?php echo $displayDate; ?> &nbsp;·&nbsp; <?php echo htmlspecialchars($locationName); ?></small>
-            </h2>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                <?php if (isset($actualData['source'])): ?>
-                <span style="font-size:.75rem;background:<?php echo $actualData['source']==='Open-Meteo API' ? '#e0f7fa' : '#f3f4f6'; ?>;color:<?php echo $actualData['source']==='Open-Meteo API' ? '#00796b' : '#6b7280'; ?>;border-radius:999px;padding:.2rem .7rem;font-weight:600;">
-                    <i class="bi bi-<?php echo $actualData['source']==='Open-Meteo API' ? 'cloud-check' : 'database'; ?>"></i>
-                    <?php echo htmlspecialchars($actualData['source']); ?>
-                </span>
-                <?php endif; ?>
-            <?php if ($overallAcc !== null): ?>
-                <div class="d-flex align-items-center gap-2">
-                    <span style="font-size:.78rem;color:#888;text-transform:uppercase;letter-spacing:.08em;">Overall</span>
-                    <span class="acc-pill <?php echo accClass($overallAcc); ?>" style="font-size:1rem;padding:.3rem .9rem;">
-                        <?php echo $overallAcc; ?>%
-                    </span>
-                </div>
-            <?php endif; ?>
-            </div>
-        </div>
-
-        <div class="table-responsive">
-            <table class="today-acc-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th>Predicted</th>
-                        <th>Actual</th>
-                        <th>Difference</th>
-                        <th>Accuracy</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($rows as $r):
-                    $diff = round($r['pred'] - $r['act'], 1);
-                    $diffSign = $diff > 0 ? '+' : '';
-                    $cls = accClass($r['acc']);
-                ?>
-                    <tr>
-                        <td><?php echo $r['label']; ?></td>
-                        <td><?php echo $r['pred'] . $r['unit']; ?></td>
-                        <td><?php echo $r['act'] . $r['unit']; ?></td>
-                        <td style="color:<?php echo $diff >= 0 ? '#e85d04' : '#0096c7'; ?>; font-weight:600;">
-                            <?php echo $diffSign . $diff . $r['unit']; ?>
-                        </td>
-                        <td>
-                            <?php if ($r['acc'] !== null): ?>
-                                <span class="acc-pill <?php echo $cls; ?>"><?php echo $r['acc']; ?>%</span>
-                            <?php else: ?>
-                                <span class="acc-pill na">N/A</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <?php else: ?>
-    <div class="today-no-data">
-        <i class="bi bi-calendar-x" style="font-size:2rem;color:#ccc;"></i>
-        <div class="mt-2" style="font-size:1rem;">No actual sensor data found for <?php echo $displayDate; ?></div>
-        <div style="font-size:.82rem;margin-top:.4rem;">Accuracy comparison will appear once data is recorded for this date.</div>
-    </div>
-    <?php endif; ?>
 </div>
 
 <script>
