@@ -7,6 +7,7 @@ A full-stack weather dashboard that combines a Raspberry Pi Sense HAT workflow, 
 ## What it does
 
 - Predicts daily temperature and humidity ranges for Wynyard, Launceston, Smithton, Hobart, and Campania.
+- Shows a rolling 10-day dashboard forecast with daily temperature, humidity, and model-derived condition icons.
 - Shows the seasonal half-hourly pattern for the selected location.
 - Retrieves current daily observations from the Open-Meteo API when available.
 - Exposes a small JSON endpoint for a Sense HAT device or other client to request a prediction.
@@ -42,6 +43,8 @@ Training first aggregates the readings to one daily minimum/maximum record per s
 | Minimum humidity | 0.82 |
 
 The features are seasonal sine/cosine terms, site indicators, and site-by-season interactions. This keeps the model interpretable and lets each location have its own annual pattern. These figures are model-fit results from the project; they should not be treated as a guarantee of future forecast accuracy, especially for the synthetic portion of the dataset.
+
+The 10-day dashboard forecast reuses these same saved models for each subsequent date. Its icons are a transparent visual summary of the predicted temperature and humidity profile; they are not live radar, precipitation, or severe-weather alerts.
 
 ## Technology
 

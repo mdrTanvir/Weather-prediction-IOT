@@ -7,6 +7,41 @@ require_once __DIR__ . '/vendor/autoload.php';
 use Phpml\ModelManager;
 use Phpml\Regression\LeastSquares;
 
+function weatherPredictionModels(): array
+{
+    static $models = null;
+
+    if ($models === null) {
+        $modelManager = new ModelManager();
+        $models = [
+            'maxHumidity' => $modelManager->restoreFromFile(__DIR__ . '/Saved_models/max_humidity_model.phpml'),
+            'minHumidity' => $modelManager->restoreFromFile(__DIR__ . '/Saved_models/min_humidity_model.phpml'),
+            'maxTemperature' => $modelManager->restoreFromFile(__DIR__ . '/Saved_models/max_temperature_model.phpml'),
+            'minTemperature' => $modelManager->restoreFromFile(__DIR__ . '/Saved_models/min_temperature_model.phpml'),
+        ];
+    }
+
+    return $models;
+}
+
+function weatherConditionIcon(float $minTemp, float $maxTemp, float $maxHumidity): array
+{
+    if ($maxHumidity >= 86) {
+        return ['icon' => 'bi-cloud-rain-heavy-fill', 'label' => 'Wet conditions likely'];
+    }
+    if ($maxHumidity >= 76) {
+        return ['icon' => 'bi-cloud-drizzle-fill', 'label' => 'Humid conditions likely'];
+    }
+    if ($maxTemp <= 10) {
+        return ['icon' => 'bi-cloud-fill', 'label' => 'Cool and cloudy'];
+    }
+    if ($maxTemp >= 22 && $maxHumidity < 65) {
+        return ['icon' => 'bi-sun-fill', 'label' => 'Warmer and clearer'];
+    }
+
+    return ['icon' => 'bi-cloud-sun-fill', 'label' => 'Mild conditions'];
+}
+
 // Function to generate predictions for a specific site number and date
 function generateMinMaxPredictions($specificSiteNumber, $specificDate)
 {
@@ -19,12 +54,7 @@ function generateMinMaxPredictions($specificSiteNumber, $specificDate)
         5 => 'Campania',
     ];
 
-    // Load the trained models
-    $modelManager = new ModelManager();
-    $maxHumidityModel = $modelManager->restoreFromFile('Saved_models/max_humidity_model.phpml');
-    $minHumidityModel = $modelManager->restoreFromFile('Saved_models/min_humidity_model.phpml');
-    $maxTemperatureModel = $modelManager->restoreFromFile('Saved_models/max_temperature_model.phpml');
-    $minTemperatureModel = $modelManager->restoreFromFile('Saved_models/min_temperature_model.phpml');
+    $models = weatherPredictionModels();
 
     // Build the same feature vector used during training
     $timestamp = strtotime($specificDate);
@@ -52,20 +82,47 @@ function generateMinMaxPredictions($specificSiteNumber, $specificDate)
     ];
 
     // Predict maximum and minimum humidity and temperature
-    $maxHumidityPrediction    = $maxHumidityModel->predict([$features]);
-    $minHumidityPrediction    = $minHumidityModel->predict([$features]);
-    $maxTemperaturePrediction = $maxTemperatureModel->predict([$features]);
-    $minTemperaturePrediction = $minTemperatureModel->predict([$features]);
+    $maxHumidityPrediction    = $models['maxHumidity']->predict([$features]);
+    $minHumidityPrediction    = $models['minHumidity']->predict([$features]);
+    $maxTemperaturePrediction = $models['maxTemperature']->predict([$features]);
+    $minTemperaturePrediction = $models['minTemperature']->predict([$features]);
 
     $clampH = fn($v) => round(max(0.0, min(100.0, $v)), 1);
+    $minTemp = round(min($minTemperaturePrediction[0], $maxTemperaturePrediction[0]), 1);
+    $maxTemp = round(max($minTemperaturePrediction[0], $maxTemperaturePrediction[0]), 1);
+    $minHumidity = $clampH(min($minHumidityPrediction[0], $maxHumidityPrediction[0]));
+    $maxHumidity = $clampH(max($minHumidityPrediction[0], $maxHumidityPrediction[0]));
 
     // Format the predictions and return
     return [
         'site_name' => $locationNames[$specificSiteNumber],
         'timestamp' => date('Y-m-d', $timestamp),
-        'minTemperaturePrediction' => round($minTemperaturePrediction[0], 1),
-        'maxTemperaturePrediction' => round($maxTemperaturePrediction[0], 1),
-        'minHumidityPrediction' => $clampH($minHumidityPrediction[0]),
-        'maxHumidityPrediction' => $clampH($maxHumidityPrediction[0]),
+        'minTemperaturePrediction' => $minTemp,
+        'maxTemperaturePrediction' => $maxTemp,
+        'minHumidityPrediction' => $minHumidity,
+        'maxHumidityPrediction' => $maxHumidity,
     ];
+}
+
+function generateMultiDayForecast(int $siteId, string $startDate, int $days = 10): array
+{
+    $start = new DateTimeImmutable($startDate);
+    $forecast = [];
+
+    for ($offset = 0; $offset < $days; $offset++) {
+        $date = $start->modify("+{$offset} days");
+        $prediction = generateMinMaxPredictions($siteId, $date->format('Y-m-d'));
+        $condition = weatherConditionIcon(
+            (float)$prediction['minTemperaturePrediction'],
+            (float)$prediction['maxTemperaturePrediction'],
+            (float)$prediction['maxHumidityPrediction']
+        );
+
+        $forecast[] = array_merge($prediction, $condition, [
+            'dayLabel' => $date->format('D'),
+            'dateLabel' => $date->format('j M'),
+        ]);
+    }
+
+    return $forecast;
 }

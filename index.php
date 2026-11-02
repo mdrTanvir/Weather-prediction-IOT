@@ -21,6 +21,7 @@ $siteId      = (isset($_GET['site']) && isset($locations[(int)$_GET['site']]))
     : $defaultSite;
 $averageData  = calculateHalfHourlyAverages($inputDate, $siteId);
 $predictions  = generateMinMaxPredictions($siteId, $inputDate);
+$forecastDays = generateMultiDayForecast($siteId, date('Y-m-d', strtotime('+1 day')), 10);
 $locationName = $predictions['site_name'];
 
 $displayDate  = date('F j, Y', strtotime($inputDate));
@@ -229,6 +230,47 @@ function accClass($pct) {
             display: inline-block;
         }
 
+        /* ── 10-day forecast ─────────────────────────────────────── */
+        .forecast-card {
+            background: #fff;
+            border-radius: var(--card-radius);
+            box-shadow: var(--shadow);
+            padding: 1.5rem 1.75rem;
+        }
+        .forecast-title {
+            margin: 0;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .forecast-subtitle {
+            margin: .25rem 0 1.25rem;
+            color: #75808c;
+            font-size: .82rem;
+        }
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(10, minmax(112px, 1fr));
+            gap: .7rem;
+            overflow-x: auto;
+            padding-bottom: .25rem;
+        }
+        .forecast-day {
+            min-width: 112px;
+            border: 1px solid #e8edf2;
+            border-radius: 13px;
+            background: linear-gradient(180deg, #fbfdff 0%, #f3f8fc 100%);
+            padding: .85rem .7rem;
+            text-align: center;
+        }
+        .forecast-day-name { color: #667085; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+        .forecast-date { color: #1a1a2e; font-size: .79rem; font-weight: 600; margin-top: .12rem; }
+        .forecast-icon { color: #f59e0b; font-size: 1.75rem; line-height: 1; margin: .75rem 0 .6rem; }
+        .forecast-range { color: #1a1a2e; font-size: .95rem; font-weight: 700; white-space: nowrap; }
+        .forecast-range span { color: #718096; font-weight: 500; }
+        .forecast-humidity { color: var(--humid-color); font-size: .76rem; margin-top: .45rem; font-weight: 600; }
+        .forecast-note { color: #89939f; font-size: .72rem; margin: 1rem 0 0; }
+
         /* ── Chart card ──────────────────────────────────────────── */
         .chart-card {
             background: #fff;
@@ -432,6 +474,26 @@ function accClass($pct) {
             </div>
         </div>
     </div>
+</div>
+
+<!-- ── 10-day forecast ─────────────────────────────────────────────── -->
+<div class="container-fluid px-4 mb-4">
+    <section class="forecast-card" aria-labelledby="forecast-title">
+        <h2 id="forecast-title" class="forecast-title"><i class="bi bi-calendar-week me-2" style="color:#0f3460"></i>Next 10 Days</h2>
+        <p class="forecast-subtitle">Model-estimated daily temperature range and humidity for <?php echo htmlspecialchars($locationName); ?>.</p>
+        <div class="forecast-grid">
+            <?php foreach ($forecastDays as $day): ?>
+            <article class="forecast-day" title="<?php echo htmlspecialchars($day['label']); ?>">
+                <div class="forecast-day-name"><?php echo htmlspecialchars($day['dayLabel']); ?></div>
+                <div class="forecast-date"><?php echo htmlspecialchars($day['dateLabel']); ?></div>
+                <div class="forecast-icon"><i class="bi <?php echo htmlspecialchars($day['icon']); ?>"></i></div>
+                <div class="forecast-range"><?php echo $day['maxTemperaturePrediction']; ?>° <span>/ <?php echo $day['minTemperaturePrediction']; ?>°</span></div>
+                <div class="forecast-humidity"><i class="bi bi-droplet-fill"></i> <?php echo $day['minHumidityPrediction']; ?>–<?php echo $day['maxHumidityPrediction']; ?>%</div>
+            </article>
+            <?php endforeach; ?>
+        </div>
+        <p class="forecast-note">Icons summarise the predicted temperature and humidity profile. They are not live radar or precipitation observations.</p>
+    </section>
 </div>
 
 <!-- ── Chart ────────────────────────────────────────────────────────── -->
